@@ -5405,6 +5405,13 @@ _detalhes.string_size_default = _detalhes.string_size:GetStringWidth()
 Details.numbertostring = numbertostring
 --]=]
 
+local testArr = {
+    [444735] = 443763,
+    [444736] = 443763,
+    [444966] = 443763,
+    [444720] = 443763,
+}
+
 --I guess this fills the list of spells in the topleft scrollBar in the summary tab
 --the goal of this function is to build a list of spells the actor used and send the data to Details! which will delivery to the summary tab actived
 --so the script only need to build the list of spells and send it to Details!
@@ -5477,8 +5484,10 @@ function damageClass:MontaInfoDamageDone()
 	for spellId, spellTable in pairs(actorSpells) do
 		spellTable.ChartData = nil --~ChartData
 
+        local parentId = testArr[spellId] or spellId
+
 		---@type string
-		local spellName = _GetSpellInfo(spellId)
+		local spellName = _GetSpellInfo(parentId)
 
 		if (spellName) then
 			---@type number in which index the spell with the same name was stored
@@ -5496,9 +5505,9 @@ function damageClass:MontaInfoDamageDone()
 			else
 				---@type spelltableadv
 				local bkSpellData = {
-					id = spellId,
+					id = parentId,
 					spellschool = spellTable.spellschool,
-					bIsExpanded = Details222.BreakdownWindow.IsSpellExpanded(spellId),
+					bIsExpanded = Details222.BreakdownWindow.IsSpellExpanded(parentId),
 					bCanExpand = false,
 
 					spellTables = {spellTable},

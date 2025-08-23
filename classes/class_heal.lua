@@ -1982,8 +1982,8 @@ function healingClass:MontaInfoHealingDone()
 
 	---@type number
 	local actorTotal = actorObject.total
-	---@type table
-	local actorSpellsSorted = {}
+	---@type breakdownspelldatalist
+	local breakdownSpellDataList = {}
 	---@type table<number, spelltable>
 	local actorSpells = actorObject:GetSpellList()
 
@@ -1998,20 +1998,22 @@ function healingClass:MontaInfoHealingDone()
 	--actor spells
 	---@type table<string, number>
 	local alreadyAdded = {}
-	for spellId, spellTable in pairs(actorSpells) do
-		---@cast spellId number
-		---@cast spellTable spelltable
 
-		spellTable.ChartData = nil
+	local bShouldMergePlayerSpells = Details.breakdown_spell_tab.nest_players_spells_with_same_name
+
+	---@type number, spelltable
+	for spellId, spellTable in pairs(actorSpells) do
+		spellTable.ChartData = nil --~ChartData
 
 		---@type string
 		local spellName = _GetSpellInfo(spellId)
+
 		if (spellName) then
 			---@type number in which index the spell with the same name was stored
 			local index = alreadyAdded[spellName]
-			if (index) then
+			if (index and bShouldMergePlayerSpells) then
 				---@type spelltableadv
-				local bkSpellData = actorSpellsSorted[index]
+				local bkSpellData = breakdownSpellDataList[index]
 
 				bkSpellData.spellTables[#bkSpellData.spellTables+1] = spellTable
 
@@ -2030,85 +2032,122 @@ function healingClass:MontaInfoHealingDone()
 					spellTables = {spellTable},
 					nestedData = {{spellId = spellId, spellTable = spellTable, actorName = "", value = 0}},
 				}
-				detailsFramework:Mixin(bkSpellData, Details.SpellTableMixin)
 
-				actorSpellsSorted[#actorSpellsSorted+1] = bkSpellData
-				alreadyAdded[spellName] = #actorSpellsSorted
+				detailsFramework:Mixin(bkSpellData, Details.SpellTableMixin)
+				breakdownSpellDataList[#breakdownSpellDataList+1] = bkSpellData
+				alreadyAdded[spellName] = #breakdownSpellDataList
 			end
 		end
 	end
 
 	--pets spells
+	local bShouldMergeSpellsWithThePet = Details.breakdown_spell_tab.nest_pet_spells_by_caster
+	local bShouldMergePetSpells = Details.breakdown_spell_tab.nest_pet_spells_by_name
+
 	local actorPets = actorObject:GetPets()
 	for _, petName in ipairs(actorPets) do
 		---@type actor
 		local petActor = combatObject(DETAILS_ATTRIBUTE_HEAL, petName)
 		if (petActor) then --PET
-			local spells = petActor:GetSpellList()
-			for spellId, spellTable in pairs(spells) do
-				---@cast spellId number
-				---@cast spellTable spelltable
+			--get the amount of spells the pet used, if the pet used only one there`s no reason to nest one spell with the pet
+			local petSpellContainer = petActor:GetSpellContainer("spell")
 
-				spellTable.ChartData = nil
-				--PET
-				---@type string
-				local spellName = _GetSpellInfo(spellId)
-				if (spellName) then
-					---@type number in which index the spell with the same name was stored
-					local index = alreadyAdded[spellName]
-					if (index) then --PET
-						---@type spelltableadv
-						local bkSpellData = actorSpellsSorted[index]
+			if (bShouldMergeSpellsWithThePet and petSpellContainer:HasTwoOrMoreSpells()) then
+				---@type spelltableadv
+				local bkSpellData = {
+					bIsActorHeader = true, --tag this spelltable as an actor header, when the actor is the header it will nest the spells use by this actor
+					actorName = petName,
+					npcId = petActor.aID,
+					id = 0,
+					spellschool = 0,
+					bIsExpanded = Details222.BreakdownWindow.IsSpellExpanded(petName),
+					spellTables = {}, --populated below with the spells the pet used
+					nestedData = {}, --there's none data here in the main bar as the first bar is the pet name
+					bCanExpand = true,
+					actorIcon = [[Interface\AddOns\Details\images\pets\pet_icon_1]],
+				}
+				detailsFramework:Mixin(bkSpellData, Details.SpellTableMixin)
 
+				--output
+				breakdownSpellDataList[#breakdownSpellDataList+1] = bkSpellData
+
+				--fill here the spellTables using the actor abilities
+				--all these spells belong to the current actor in the loop
+				for spellId, spellTable in petSpellContainer:ListSpells() do
+					local spellName, _, spellIcon = GetSpellInfo(spellId)
+					if (spellName) then
 						bkSpellData.spellTables[#bkSpellData.spellTables+1] = spellTable
-
 						---@type bknesteddata
-						local nestedData = {spellId = spellId, spellTable = spellTable, actorName = petName, value = 0}
+						local nestedData = {spellId = spellId, spellTable = spellTable, actorName = petName, value = 0, bIsActorHeader = true} --value to be defined
 						bkSpellData.nestedData[#bkSpellData.nestedData+1] = nestedData
-						bkSpellData.bCanExpand = true
-					else --PET
-						---@type spelltableadv
-						local bkSpellData = {
-							id = spellId,
-							actorName = petName,
-							spellschool = spellTable.spellschool,
-							expanded = Details222.BreakdownWindow.IsSpellExpanded(spellId),
-							bCanExpand = false,
+					end
+				end
+			else
+				local spells = petActor:GetSpellList()
+				--all these spells belong to the current pet in the loop
+				for spellId, spellTable in pairs(spells) do
+					---@cast spellId number
+					---@cast spellTable spelltable
 
-							spellTables = {spellTable},
-							nestedData = {{spellId = spellId, spellTable = spellTable, actorName = petName, value = 0}},
-						}
-						detailsFramework:Mixin(bkSpellData, Details.SpellTableMixin)
+					spellTable.ChartData = nil
+					--PET
+					---@type string
+					local spellName = _GetSpellInfo(spellId)
+					if (spellName) then
+						---@type number in which index the spell with the same name was stored
+						local index = alreadyAdded[spellName]
+						if (index and bShouldMergePetSpells) then --PET
+							---@type spelltableadv
+							local bkSpellData = breakdownSpellDataList[index]
 
-						actorSpellsSorted[#actorSpellsSorted+1] = bkSpellData
-						alreadyAdded[spellName] = #actorSpellsSorted
+							bkSpellData.spellTables[#bkSpellData.spellTables+1] = spellTable
+
+							---@type bknesteddata
+							local nestedData = {spellId = spellId, spellTable = spellTable, actorName = petName, value = 0}
+							bkSpellData.nestedData[#bkSpellData.nestedData+1] = nestedData
+							bkSpellData.bCanExpand = true
+						else --PET
+							---@type spelltableadv
+							local bkSpellData = {
+								id = spellId,
+								actorName = petName,
+								npcId = petActor.aID,
+								spellschool = spellTable.spellschool,
+								bIsExpanded = Details222.BreakdownWindow.IsSpellExpanded(spellId),
+								bCanExpand = false,
+
+								spellTables = {spellTable},
+								nestedData = {{spellId = spellId, spellTable = spellTable, actorName = petName, value = 0}},
+							}
+
+							detailsFramework:Mixin(bkSpellData, Details.SpellTableMixin)
+							breakdownSpellDataList[#breakdownSpellDataList+1] = bkSpellData
+							alreadyAdded[spellName] = #breakdownSpellDataList
+						end
 					end
 				end
 			end
 		end
 	end
 
-	for i = 1, #actorSpellsSorted do
+	--copy the keys from the spelltable and add them to the spelltableadv
+	--repeated spells will be summed
+	for i = 1, #breakdownSpellDataList do
 		---@type spelltableadv
-		local bkSpellData = actorSpellsSorted[i]
+		local bkSpellData = breakdownSpellDataList[i]
 		Details.SpellTableMixin.SumSpellTables(bkSpellData.spellTables, bkSpellData)
-		--Details:Destroy(bkSpellData, "spellTables")
+		--Details:Destroy(bkSpellData, "spellTables") --temporary fix for BuildSpellTargetFromBreakdownSpellData, that function need to use bkSpellData.nestedData
 	end
 
-	--table.sort(actorSpellsSorted, Details.Sort2)
-	table.sort(actorSpellsSorted, function(t1, t2)
-		return t1.total > t2.total
-	end)
-
-	actorSpellsSorted.totalValue = actorTotal
-	actorSpellsSorted.combatTime = actorCombatTime
+	breakdownSpellDataList.totalValue = actorTotal
+	breakdownSpellDataList.combatTime = actorCombatTime
 
 	--cleanup
 	Details:Destroy(alreadyAdded)
 
-	--actorSpellsSorted has the spell infomation, need to pass to the summary tab
+	--breakdownSpellDataList has the spell infomation, need to pass to the summary tab
 	--send to the breakdown window
-	Details222.BreakdownWindow.SendSpellData(actorSpellsSorted, actorObject, combatObject, instance)
+	Details222.BreakdownWindow.SendSpellData(breakdownSpellDataList, actorObject, combatObject, instance)
 
 	--targets
 
